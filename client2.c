@@ -97,7 +97,7 @@ int setup_timer_signaling()
 	// the rt library at link time and depending on implementation it might create an
 	// additional thread to handle timing, which might be a problem or not depending on
 	// the thread/process/clone budget of the embedded system.
-	struct itimerval tv = { .it_interval.tv_usec = 100000, .it_value.tv_usec = 100000 }; // C99 guarantees zeroed fields better than memset
+	struct itimerval tv = { .it_interval.tv_usec = 20000, .it_value.tv_usec = 20000 }; // C99 guarantees zeroed fields better than memset
 	if (setitimer( ITIMER_REAL, &tv, NULL ) != 0) {
 		perror("setitimer");
 		return EXIT_FAILURE;
@@ -176,6 +176,39 @@ int read_from_socket( int fd, char *buf, int bufsize )
 	return got-1;
 }
 
+// A helper function to connect to a udp port
+int connect_to_udp_port( const char *addr, int port )
+{
+	// Define a structure to describe the tcp connection
+	struct sockaddr_in client;
+	memset( &client, 0, sizeof(client) );
+	client.sin_family = AF_INET;
+	client.sin_port = htons(port);
+
+	// Convert IPv4 address from text to binary
+	// Discussion:
+	// In space no one can hear you DNS request. Using a numeric ip address
+	if (inet_pton( AF_INET, addr, &client.sin_addr ) != 1) {
+		fprintf(stderr, "inet_pton: %s is not a valid network address\n", addr);
+		return -1;
+	}
+
+	// Create a socket we later use to send udp packets
+	int sockfd;
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		perror("socket");
+		return -1;
+	}
+
+	// Connect to the server over udp
+	if (connect( sockfd, (const struct sockaddr *)(&client), sizeof(client) ) < 0) {
+		perror("connect");
+		return -1;
+	}
+
+	return sockfd;
+}
+
 int main( int argc, char **argv )
 {
 	// Set up an interval timer
@@ -191,6 +224,9 @@ int main( int argc, char **argv )
 		addr_string = argv[1];
 	}
 
+	// Connect to command socket
+	int fd_4000 = connect_to_udp_port(addr_string, 4000);
+	
 	// Connect to datasource sockets
 	int fd_4001 = connect_to_tcp_port(addr_string, 4001);
 	if (fd_4001 < 0) exit(EXIT_FAILURE);
@@ -216,6 +252,9 @@ int main( int argc, char **argv )
 
 	// This is an efficient way to keep track wether we have seen data for a while
 	int lines_without_data = 0;
+
+	// Frequency of output channel 3
+	int chan3_frq = 500; // Initial default value the server starts with
 
 	// Mainloop. Here we handle data and signals
 	while( keeprunning ) {
@@ -277,7 +316,7 @@ int main( int argc, char **argv )
 					// all resources. We must assume there is a Computer Operating Properly (COP) process or
 					// or unix init/initab or even systemd in the background trying to control
 					// the situation and will restart us when it things everything is back in order again.
-					if (lines_without_data > 10) {
+					if (lines_without_data > 50) {
 						fprintf( stderr, "No data from server for a long time. Number of empty lines: %d\n", lines_without_data );
 						keeprunning = false;
 					}
@@ -323,6 +362,32 @@ int main( int argc, char **argv )
 				}
 				sprintf( channel_str[2], "\"%s\"", buf);
 				lines_without_data = 0;
+
+				// Parse channel 3 and react to it
+				char *end;
+				float chan3_val = strtof(buf, &end);
+				// if end does not point to a zero char, the float was broken. Bypass further handling
+				if (*end != '\0') {
+					continue;
+				}
+
+				printf("%d %f\n", chan3_frq, chan3_val);
+				if (chan3_val >= 3.0 && chan3_frq != 1000) {
+					// Set output 1 to 1 Hz @ 8000 amp
+					short int message_hz[4] =  { htons(2), htons(1), htons(255), htons(1000) };
+					short int message_amp[4] = { htons(2), htons(1), htons(170), htons(8000) };
+					sendto(fd_4000, message_hz,  sizeof(message_hz),  0, NULL, 0);
+					sendto(fd_4000, message_amp, sizeof(message_amp), 0, NULL, 0);
+					chan3_frq = 1000;
+				}
+				if (chan3_val < 3.0 && chan3_frq != 2000) {
+					// Set output 1 to 2 Hz @ 4000 amp
+					short int message_hz[4] =  { htons(2), htons(1), htons(255), htons(2000) };
+					short int message_amp[4] = { htons(2), htons(1), htons(170), htons(4000) };
+					sendto(fd_4000, message_hz,  sizeof(message_hz),  0, NULL, 0);
+					sendto(fd_4000, message_amp, sizeof(message_amp), 0, NULL, 0);
+					chan3_frq = 2000;
+				}
 			}
 		}
 	}
@@ -332,6 +397,7 @@ int main( int argc, char **argv )
 	close( signalpipe_fd[0] );
 	close( signalpipe_fd[1] );
 	// Close the sockets
+	close( fd_4000 );
 	close( fd_4001 );
 	close( fd_4002 );
 	close( fd_4003 );
