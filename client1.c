@@ -25,7 +25,7 @@ volatile bool keeprunning = true;
 // Signalpipes is a way for interrupt handlers to react signals
 volatile int signalpipe_fd[2];
 
-// Handler sends the signial number to pipe for processing in order with
+// Handler sends the signal number to pipe for processing in order with
 // other events and signals in the main loop.
 // This creates a pseudo Go like experience where we wait for things
 // on a multiselect loop.
@@ -74,7 +74,7 @@ int setup_timer_signaling()
 
 	// Set read part of signaling pipe to be nonblocking.
 	// Blocking on either reading or writing to pipes would indicate we have fallen
-	// badly behind on signal prosessing or something similarly extreme would have
+	// badly behind on signal processing or something similarly extreme would have
 	// happened. It is better to let following layers of communication to pick
 	// the error situation and react to it than to hang on pipe operation.
 	if (fcntl( signalpipe_fd[0], F_SETFL, O_NONBLOCK ) != 0) {
@@ -147,7 +147,7 @@ int connect_to_tcp_port( const char *addr, int port )
 	}
 
 	// Set socket to be nonblocking
-	// It is easier to handle unexperted error situations on the main loop dynamically
+	// It is easier to handle unexpected error situations on the main loop dynamically
 	// than using timeouts on blocking calls. So setting socket to nonblocking
 	if (fcntl( sockfd, F_SETFL, O_NONBLOCK) != 0 ) {
 		perror("fcntl");
@@ -157,7 +157,7 @@ int connect_to_tcp_port( const char *addr, int port )
 	return sockfd;
 }
 
-// Helperfunction for reading from socket
+// Helper function for reading from socket
 int read_from_socket( int fd, char *buf, int bufsize )
 {
 	int got = read( fd, buf, bufsize-1);
@@ -166,7 +166,7 @@ int read_from_socket( int fd, char *buf, int bufsize )
 		return -1;
 	}
 	if (buf[got-1] != '\n') {
-		fprintf( stderr, "Broken datapacket %s\n", buf );
+		fprintf( stderr, "Broken data packet %s\n", buf );
 		return -1;
 	}
 
@@ -191,7 +191,7 @@ int main( int argc, char **argv )
 		addr_string = argv[1];
 	}
 
-	// Connect to datasource sockets
+	// Connect to data source sockets
 	int fd_4001 = connect_to_tcp_port(addr_string, 4001);
 	if (fd_4001 < 0) exit(EXIT_FAILURE);
 	int fd_4002 = connect_to_tcp_port(addr_string, 4002);
@@ -210,7 +210,7 @@ int main( int argc, char **argv )
 	
 	// Define a list of string buffers where we hold json string representation of the data.
 	// Discussion:
-	// This makes it easier to use printf() field width formating to achieve the pseudo columnar look
+	// This makes it easier to use printf() field width formatting to achieve the pseudo columnar look
 	// that was present in the example
 	char channel_str[3][20] = { {"\"--\","}, {"\"--\","}, {"\"--\""} };
 
@@ -219,7 +219,7 @@ int main( int argc, char **argv )
 
 	// Mainloop. Here we handle data and signals
 	while( keeprunning ) {
-		// Wait for file descriptos of sockets or signals to become active
+		// Wait for file descriptors of sockets or signals to become active
 		int n_events = poll( wait_for_these, wait_array_len, 10000 );
 
 		// Bypass an interrupt from the timer
@@ -228,7 +228,7 @@ int main( int argc, char **argv )
 		// If there are no events, go back to poll
 		if(n_events<=0) continue;
 
-		// Look through filedescriptors that have something to read
+		// Look through file descriptors that have something to read
 		for(int i=0;i<wait_array_len;i++) {
 
 			// We are only interested in POLLIN events, anything else we bypass
@@ -244,7 +244,7 @@ int main( int argc, char **argv )
 
 				// The signal was from the interval timer. Process it
 				if (sig == SIGALRM) {
-					// Get the current wallclock time.
+					// Get the current wall clock time.
 					// Discussion:
 					// Check here that timespec.tv_sec is 64 bits. This depends on the kernel
 					// version and cpu width. Older installations might have a 32 bit .tv_sec
@@ -267,7 +267,7 @@ int main( int argc, char **argv )
 					// If we have not seen any data from any sources for 10 lines,
 					// we conclude the server has died and it's best to exit.
 					// The value in error message is off by one or two depending on situation
-					// but is only intended to give a rough idea about the length of dataloss.
+					// but is only intended to give a rough idea about the length of data loss.
 					// Discussion:
 					// We have two options here. Either to try to reconnect multiple times
 					// or stop the program and let it be restarted.
@@ -275,7 +275,7 @@ int main( int argc, char **argv )
 					// The server might have died and/or restarted, the network might have died,
 					// we might be bugged or a third program might have gone crazy and is eating
 					// all resources. We must assume there is a Computer Operating Properly (COP) process or
-					// or unix init/initab or even systemd in the background trying to control
+					// or unix init/inittab or even systemd in the background trying to control
 					// the situation and will restart us when it things everything is back in order again.
 					if (lines_without_data > 10) {
 						fprintf( stderr, "No data from server for a long time. Number of empty lines: %d\n", lines_without_data );
